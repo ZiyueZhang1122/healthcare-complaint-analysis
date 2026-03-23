@@ -1,0 +1,680 @@
+---
+title: "CITS4009 Project —— Exploratory Data Analysis and Predictive Modelling"
+author: "Alina ZHANG 24888935"
+date: "2025-10-05"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    theme: flatly
+    code_folding: show
+---
+# AI Tools Acknowledgment
+This project report was written with the assistance of AI-based tool ChatGPT for code debugging, text structuring, and language polishing.
+All  analyses and conclusions were independently derived and thoughtfully interpreted by the author.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+The global box office industry has experienced significant growth in the past two decades, influenced by economic development and demographic changes.  
+This project aims to explore the relationships between Box office, GDP, and Population across countries from 2000 to 2024. 
+
+# Data Exploration
+## Data Overview
+The following data sets are used:
+
+- Box_office_data(2000-2024)
+- GDP_2020_2024
+- Population_2000_2024
+
+## Load Required Libraries
+```{r}
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(pROC)
+library(knitr)
+library(lime)
+```
+We first load the required R packages for data analysis and visualization.
+
+## Import Data Sets
+```{r}
+boxoffice <- read_csv("Box_office_data(2000-2024).csv")
+gdp <- read_csv("GDP_2020_2024.csv")
+population <- read_csv("Population_2000_2024.csv")
+```
+Next, we import the threes data sets used in this project.
+
+## Check Structure of Each Data Set
+```{r}
+str(boxoffice)
+str(gdp)
+str(population)
+```
+The structure outputs show that: 
+
+- The Box Office data set includes variables such as Worldwide, Year, Genres, and Rating.
+- The GDP data set includes variables such as Country Name, Country Code, and Year.
+- The Population data set includes variables such as Year, Population, and Annual Growth Rate.
+
+## Summay Statistics
+```{r}
+summary(boxoffice)
+summary(gdp)
+summary(population)
+```
+The summary outputs show that:
+
+- The Box office data set contains around 5,000 movies from 2000 to 2024. There is a strong variability between movies, and around 170 movies lack audience vote counts.
+- The GDP data set includes yearly economic data for 266 countries from 2000 to 2024. A few missing values are observed in some years,  which will require cleaning later.
+- The Population data set contains 5700 observations for different countries between 2000 and 2024. Most variables are stored as character, which will be converted before analysis. About 25 missing values are found in Year variable.
+
+# Initial Visualisation (Raw Data Inspection)
+Before performing data cleaning, it is important to visualize the raw datasets to identify potential problems such as missing values, inconsistent formats, and outliers.This step helps to determine what needs to be fixed later during the data cleaning process.
+
+### Box Office (Raw Data)
+```{r}
+ggplot(boxoffice, aes(x = `$Worldwide`)) +
+  geom_histogram(fill = "steelblue", bins = 30, color = "white") +
+  labs(title = "Distribution of Worldwide Box Office (Raw Data)",
+       x = "Worldwide Revenue (USD)", 
+       y = "Count") +
+  theme_minimal() + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Interpretation:
+
+The box office data is highly right-skewed, with a few movies having extremely large revenues.This indicates that we may need a log transformation later.
+
+### GDP (Raw Data)
+```{r}
+gdp_long <- gdp %>%
+  pivot_longer(
+    cols = matches("^[0-9]{4}$"),
+    names_to = "Year",
+    values_to = "GDP"
+  ) %>%
+  mutate(Year = as.numeric(Year))
+
+ggplot(gdp_long, aes(x = Year, y = GDP, group = `Country Name`)) +
+  geom_line(alpha = 0.4, color = "lightgreen") +
+  labs(title = "GDP Trends by Country (Raw Data)",
+       x = "Year", 
+       y = "GDP (current US$)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Interpretation:
+
+The raw GDP and population datasets are in wide format and contain missing values for certain years and countries.This suggests that transformation and cleaning will be necessary before merging the datasets.
+
+### Population (Raw Data)
+```{r}
+ggplot(population, aes(x = Year, y = Population, group = Name)) +
+  geom_line(alpha = 0.15, color = "palevioletred") +
+  labs(title = "Population Trends by Country (Raw Data)",
+       x = "Year", 
+       y = "Population") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Interpretation:
+
+The raw population data shows a generally upward trend across most countries from 2000 to 2024, indicating consistent population growth over time. This imbalance highlights the need for potential normalization or log transformation in later analysis to ensure fair comparison across countries.
+
+# Data Cleaning and Transformation
+
+During the initial data exploration, several data quality issues were identified, including miss values and incorrect data types. Therefore, before proceeding to visualization and modelling, the data were cleaned to ensure consistency and accuracy.
+
+## Check Missing Values
+```{r}
+colSums(is.na(boxoffice))
+colSums(is.na(gdp))
+colSums(is.na(population))
+```
+We examined missing values in all three data sets. The results show that:
+
+- In the Box office data set, 'Genres', 'Rating', 'Vote_Count', 'Original_Language', and 'Production_Countries' contain missing values ranging from 170 to 200 records, representing less than 5% of the total observations.
+
+- In the GDP data set, each year contains a small number of missing data. Since the number of missing values is small relative to the total, these will be handled through mean or median imputation.
+
+- The Population data set is almost complete, except for 25 missing values in the 'Year' column. 
+Overall, the percentage of missing data is within acceptable limits, ensuring that removal or imputation will not significantly affect analysis quality.
+
+## Box Office Data Cleaning
+```{r}
+boxoffice <- boxoffice %>%
+  mutate(
+    Genres = replace_na(Genres, "Unknown"),
+    Rating = replace_na(Rating, "Unknown"),
+    Original_Language = replace_na(Original_Language, "Unknown"),
+    Production_Countries = replace_na(Production_Countries, "Unknown"),
+    Vote_Count = ifelse(is.na(Vote_Count),
+                        mean(Vote_Count, na.rm = TRUE),
+                        Vote_Count)
+  )
+```
+
+Missing categorical values were replaced with "Unknown", and numeric values were imputed using the mean to maintain data consistency.
+
+## GDP Data Cleaning
+```{r}
+gdp <- gdp %>%
+  mutate(across(`2000`:`2024`,
+                ~ ifelse(is.na(.x), mean(.x, na.rm = TRUE), .x)))
+```
+
+Missing GDP were replaced using the yearly mean for each corresponding column.
+
+## Population Data Cleaning
+```{r}
+population <- population %>% drop_na(Year)
+```
+
+Rows with missing year values were removed since "Year" is essential for data alignment.
+
+```{r}
+population <- population %>%
+  mutate(across(
+    -c(Name, GENC, Year),
+    ~ readr::parse_number(.x, locale = readr::locale(grouping_mark = ","))
+  ))
+```
+Most of the population data set variables were originally read as character strings due to the presence of commas and special symbols. All numeric indicator columns (except for Name, GENC, and Year) were converted to numeric type using parse_number() from the readr package.
+
+```{r}
+colSums(is.na(population))
+summary(population)
+```
+```{r}
+num_cols <- setdiff(names(population), c("Name", "GENC", "Year"))
+population <- population %>%
+  mutate(across(all_of(num_cols),
+                ~ ifelse(is.na(.x), median(.x, na.rm = TRUE), .x)))
+```
+
+After checking for missing values, several numeric columns were found to contain a small number of NA values. Since most variables in the data set are right-skewed and contain outliers, median imputation was applied to all numeric columns for categorical identifiers such as Name, GENC, and Year. 
+
+## Final Data Inspection
+```{r}
+cat("\n Box Office Data set \n")
+colSums(is.na(boxoffice))
+str(boxoffice)
+summary(boxoffice)
+```
+```{r}
+cat("\n GDP Data set \n")
+colSums(is.na(gdp))
+str(gdp)
+summary(gdp)
+```
+```{r}
+cat("\n Population Data set \n")
+colSums(is.na(population))
+str(population)
+summary(population)
+```
+After data cleaning, all numeric and categorical variables were complete, except for 25 missing values in the GENC column of the population data set. These correspond to regions without standardized country codes and were retained as they do not affect the analysis. Overall, the data cleaning process successfully prepared three integrated data sets ready for further visualisation and modelling.
+
+# Data Visualisation
+## Introduction
+This section aims to visually explore the three data sets to understand their distributions, relationships, and temporal trends.
+
+## Univariate Visualisation
+
+This section aims to examine the individual distributions of box office revenue, GDP, and population from 2000 to 2024. Understanding each variable's distribution helps identify data patterns, outliers, and skewness before exploring relationships among variables.
+
+### Worldwide Box Office Distribution
+```{r}
+library(ggplot2)
+library(patchwork)
+
+p1 <- ggplot(boxoffice, aes(x = `$Worldwide` / 1e9)) + 
+  geom_histogram(bins = 30, fill = "skyblue", color = "white") + 
+  labs(
+    title = "Original Distribution of Box Office\n (2000-2024)", 
+    x = "Worldwide Revenue (Billion USD)", 
+    y = "Number of Movies") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+p2 <- ggplot(boxoffice, aes(x = `$Worldwide`)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  scale_x_log10(labels = scales::comma) +
+  labs(
+    title = "Log Distribution of Box Office\n (2000-2024)", 
+    x = "Worldwide Revenue (log10 USD)", 
+    y = "Number of Movies") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+p1 + p2
+```
+```{r}
+boxoffice_avg <- boxoffice %>%
+  group_by(Year) %>%
+  summarise(mean_revenue = mean(`$Worldwide`, na.rm = TRUE))
+
+ggplot(boxoffice_avg, aes(x = Year, y = mean_revenue)) +
+  geom_line(color = "skyblue", linewidth = 1.2) + 
+  geom_point(color = "steelblue", size = 2) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Average Worldwide Box Office Trend (2000-2024)",
+    x = "Year",
+    y = "Average Worldwide Revenue") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Interpretation:
+
+- The histogram on the left shows the original worldwide box office revenue distribution, which is highly right-skewed, meaning most movies earned relatively low revenues, while only a few movies achieved extremely high box office. After applying a logarithmic transformation, the distribution becomes approximately normal, which improved interpretability and is beneficial for later modeling.
+- The global box office revenue shows a steady growth from 2000 to 2019, followed by a dramatic decline in 2020, reflecting the severe impact of the COVID-19 pandemic on the film industry. The partial recovery after 2021 suggests gradual reopening and audience return.
+
+### GDP Distribution
+```{r}
+ggplot(gdp, aes(x = `2020`)) +
+  geom_histogram(bins = 30, fill = "lightgreen", color = "white") +
+  labs(
+    title = "Distribution of Global GDP(2020)",
+    x = "GDP",
+    y = "Number of Countries") +
+  scale_x_continuous(labels = scales::comma) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+library(tidyr)
+gdp_long <- gdp %>%
+  pivot_longer(cols = `2000`:`2024`,
+               names_to = "Year",
+               values_to = "GDP") %>%
+  mutate(Year = as.numeric(Year))
+
+gdp_avg <- gdp_long %>%
+  group_by(Year) %>%
+  summarise(mean_GDP = mean(GDP, na.rm = TRUE))
+
+ggplot(gdp_avg, aes(x = Year, y = mean_GDP)) +
+  geom_line(color = "lightgreen", linewidth = 1.2) +
+  geom_point(color = "seagreen", size = 2) +
+  labs(title = "Average Global GDP Trend (2000-2024)",
+       x = "Year",
+       y = "Average GDP") +
+  scale_y_continuous(labels = scales::comma) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Interpretation:
+
+- The histogram shows that the global population distribution in 2021 is highly right-skewed, indicating that global wealth is concentrated within a few high-income countries, while most nations exhibit relatively low GDP levels. 2020 was chosen for consistency with the box office analysis, as both reflect the global economic disruption during the COVID-19 pandemic.
+- Over the period from 2000-2024, the average global GDP shows a consistent upward trend, reflecting sustained global economic growth.
+
+### Population Distribution
+```{r}
+pop_2020 <- population %>%
+  filter(Year == 2020, !is.na(Population))
+  
+ggplot(pop_2020, aes(x = Population)) + 
+  geom_histogram(bins = 30, fill = "pink3", color = "white") +
+  labs(title = "Distribution of Global Population (2020)",
+       x = "Population",
+       y = "Number of Countries") +
+  scale_x_continuous(labels = scales::comma) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+```{r}
+population <- population %>%
+  mutate(
+    Year = as.numeric(Year))
+
+population_avg <- population %>%
+  group_by(Year) %>%
+  summarise(mean_population = mean(Population, na.rm = TRUE)) %>%
+  filter(!is.na(mean_population))
+
+ggplot(population_avg, aes(x = Year, y = mean_population)) +
+  geom_line(color = "pink3", linewidth = 1.2) +
+  geom_point(color = "palevioletred", size = 2) +
+  labs(title = "Average Global Population Trend (2000-2024)",
+       x = "Year",
+       y = "Average Population") +
+  scale_y_continuous(labels = scales::comma) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Interpretation:
+
+- The global population distribution in 2020 is highly right-skewed, indicating that a few countries account for disproportionately large share of the world's population, while most other countries have comparatively small populations. 
+- The average global population shows a steady and continuous growth from 2000 to 2024, reflecting consistent demographic expansion across most countries. Unlike Box Office or GDP revenues, population growth appears smooth and largely unaffected by external factors.
+
+## Bivariate Visualisation
+
+This section aims to explore potential relationships between economic and demographic factors and movie industry performance. By combining the data sets by country and year, we can examine whether wealthier or more populous countries tend to generate higher box office revenues.
+
+### Data Integration
+```{r}
+boxoffice <- boxoffice %>% 
+  mutate(Country = trimws(sapply(strsplit(Production_Countries, ","), `[`, 1)))
+
+boxoffice_country <- boxoffice %>%
+  group_by(Country, Year) %>%
+  summarise(Total_BoxOffice = sum(`$Worldwide`, na.rm = TRUE), .groups = "drop")
+
+year_cols_gdp <- intersect(names(gdp), as.character(2000:2024))
+year_cols_pop <- intersect(names(population), as.character(2000:2024))
+
+gdp_long <- gdp %>%
+  pivot_longer(
+    cols = all_of(year_cols_gdp),
+    names_to = "Year",
+    values_to = "GDP") %>%
+  mutate(Year = as.integer(sub("^X", "", Year)))
+
+population_long <- population %>%
+  select(Name, Year, Population)
+
+merged <- boxoffice_country %>%
+  inner_join(gdp_long, by = c("Country" =  "Country Name", "Year" = "Year")) %>%
+  inner_join(population_long, by = c("Country" =  "Name", "Year" = "Year"))
+```
+
+### Relationship between Box Office and GDP
+```{r}
+ggplot(merged, aes(x = GDP, y = Total_BoxOffice)) +
+  geom_point(alpha = 0.6, color = "seagreen") +
+  geom_smooth(method = "lm", se = FALSE, color = "steelblue") +
+  scale_x_continuous(labels = scales::comma) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Relationship between GDP and Box Office",
+       x = "GDP (USD)", 
+       y = "Worldwide Box Office (USD)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Interpretation:
+
+- The scatter plot illustrates that most data points cluster toward lower GDP and box office values, while a few outliers represent countries with exceptionally high GDP and box office performance.
+- The fitted regression line shows a clear positive relationship between GDP and box office revenue. Countries with higher GDP levels tend to generate higher box office revenues, suggesting that economic prosperity supports stronger film markets.
+
+### Relationship between Population and Box Office
+```{r}
+ggplot(merged, aes(x = Population, y = Total_BoxOffice)) +
+  geom_point(alpha = 0.6, color = "palevioletred") +
+  geom_smooth(method = "lm", se = FALSE, color = "steelblue") +
+  scale_x_continuous(labels = scales::comma) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Relationship between Population and Box Office",
+       x = "Population", 
+       y = "Worldwide Box Office (USD)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Interpretation:
+
+- The scatter plot shows that most points are clustered in the lower-left corner, indicating that majority of countries have relatively small populations and low box office revenues.a
+- The fitted regression line slopes slightly upward, suggesting a weak positive relationship between population size and box office revenue. This indicates that while countries with larger populations tend to generate higher box office revenues, population alone is not a strong predictor of market performance.
+
+## Multivariate Visualisation
+```{r}
+ggplot(merged, aes(x = GDP, y = Total_BoxOffice, size = Population, color = Year)) +
+  geom_point(alpha = 0.7) + 
+  scale_x_continuous(labels = scales::comma) +
+  scale_y_continuous(labels = scales::comma) +
+  scale_color_gradient(low = "palevioletred", high = "steelblue") +
+  labs(title = "Box Office vs GDP and Population (2000-2024)",
+       x = "GDP (USD)",
+       y = "Worldwide Box Office (USD)",
+       size = "Population",
+       color = "Year") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Interpretation:
+
+The multivariate bubble chart illustrates the combined effect of GDP, Population, and year on box office revenue. Larger and later-year bubbles tend to cluster in the upper-right region, indicating that countries with both high GDP and large populations achieve stronger box office performance. The gradual color shift from pink to blue represents temporal growth between 2000 and 2024, highlighting the global expansion of both economic capacity and film market size over time.
+
+## Overall Summary
+
+EDA revealed a strong correlation between GDP and Box Office, and a weaker one with Population. The visual analysis reveals clear and consistent pattern across the data sets. Collectively, these findings highlight that economic capacity and demographic scale jointly shape the global film industry's performance between 2000 and 2024.
+
+# Classification, Feature Engineering, and Feature Selection
+## Feature Engineering
+```{r}
+merged <- merged %>%
+  mutate(BoxOffice_perGDP = Total_BoxOffice / GDP)
+
+median_ratio <- median(merged$BoxOffice_perGDP, na.rm = TRUE)
+
+merged <- merged %>%
+  mutate(BoxOffice_Class = ifelse(BoxOffice_perGDP >= median_ratio, "High", "Low")) %>%
+  mutate(BoxOffice_Class = as.factor(BoxOffice_Class))
+
+head(merged %>%
+       select(Country, Year, GDP, Total_BoxOffice, BoxOffice_perGDP, BoxOffice_Class))
+```
+The box office variable was normalised by GDP to account for differences in economic scale across countries. Countries with higher box office relative to GDP were classified as "High", while others were classifies as "Low". This provides a fairer basis for comparison and aligns with the instructor's suggestion to normalise by socioeconomic indicators.
+
+## Modelling data set
+```{r}
+df <- merged %>%
+  select(Country, Year, GDP, Population, Total_BoxOffice, BoxOffice_Class) %>%
+  filter(!is.na(GDP), !is.na(Population), !is.na(Total_BoxOffice), !is.na(BoxOffice_Class)) %>%
+  mutate(
+    BoxOffice_Class = factor(BoxOffice_Class, levels = c("Low", "High")),
+    log_GDP = log10(GDP),
+    log_Pop = log10(Population)
+  )
+```
+Missing values were filtered using !is.na() to ensure that only complete records were used for modelling, preventing errors during log transformation and model fitting. To reduce the skewness mentioned in the section of visualisation, both variables were log-transformed. This transformation stabilises the variance and helps the model better capture linear relationships during classification.
+
+## Train / Test Split
+```{r}
+set.seed(777)
+idx <- caret::createDataPartition(df$BoxOffice_Class, p = 0.75, list = FALSE)
+train <- df[idx,]
+test <- df[-idx,]
+
+majority <- names(which.max(table(train$BoxOffice_Class)))
+baseline_acc <- mean(test$BoxOffice_Class == majority)
+baseline_acc
+```
+The baseline model achieved an accuracy of 0.5, which indicates that the two classes ("High" and "Low" box office) are approximately balanced. This provides a reasonable benchmark for evaluating the performance of subsequent classification models.
+
+## Decision Tree Classifier
+```{r}
+train$BoxOffice_Class <- factor(train$BoxOffice_Class)
+test$BoxOffice_Class <- factor(test$BoxOffice_Class, levels = levels(train$BoxOffice_Class))
+
+if(!"GDP_log" %in% names(train)) {
+  train <- train %>% mutate(GDP_log = log10(GDP))
+  test <- test %>% mutate(GDP_log = log10(GDP))
+}
+
+if(!"Population_log" %in% names(train)) {
+  train <- train %>% mutate(Population_log = log10(Population))
+  test <- test %>% mutate(Population_log = log10(Population))
+}
+```
+
+```{r}
+tree0 <- rpart(
+  BoxOffice_Class ~ log_GDP + log_Pop + Year,
+  data = train,
+  method = "class",
+  control = rpart.control(cp = 0.001, minsplit = 20, xval = 10)
+)
+
+rpart.plot(tree0, type = 2, extra = 106, under = TRUE, fallen.leaves = TRUE)
+```
+```{r}
+printcp(tree0)
+best_cp <- tree0$cptable[which.min(tree0$cptable[, "xerror"]), "CP"]
+
+tree <- prune(tree0, cp = best_cp)
+
+rpart.plot(tree, type = 2, extra = 106, under = TRUE, fallen.leaves = TRUE)
+```
+
+Interpretation:
+
+The decision tree shows that GDP is the most influential factor in predicting box office levels, with population and year providing minor adjustments. Countries with higher GDP values and larger populations are more likely to achieve higher box office revenues.
+
+```{r}
+pred_class <- predict(tree, newdata = test, type = "class")
+pred_prob <- predict(tree, newdata = test, type = "prob")[, "High"]
+
+cm_tree <- confusionMatrix(pred_class, test$BoxOffice_Class, positive = "High")
+cm_tree
+```
+```{r}
+roc_obj <- roc(response = test$BoxOffice_Class,
+               predictor = pred_prob,
+               levels = c("Low", "High"))
+auc_val <- auc(roc_obj)
+auc_val
+
+plot.roc(roc_obj, print.auc = TRUE, col = "palevioletred", lwd = 2,
+         main = "ROC Curve -- Decision Tree")
+```
+
+Interpretation:
+
+The decision tree model achieved an overall accuracy of 53.64%, slightly above the baseline of 50%. Although it shows some ability to distinguish between high and low box office levels, the AUC values of 0.571 indicates relatively weak predictive performance. Overall, the model suggests that GDP and population contribute limited explanatory power, and further feature enrichment may be needed to enhance prediction quality.
+
+```{r}
+vi <- as.data.frame(tree$variable.importance)
+colnames(vi) <- "Importance"
+vi
+```
+ 
+Interpretation:
+
+- The feature importance results indicate that population has the strongest impact on classifying countries into high or low box office groups, closely followed by GDP, while year plays a smaller but noticeable role, possibly capturing the effects of global events such as the pandemic.
+- While the decision tree plot shows that GDP is the most influential factor at the top split, which is different with the variable importance analysis. This suggests that while economic scale drives the primary division between high and low box office groups, population size consistently influences subsequent classifications.
+
+```{r}
+saveRDS(merged, "merged.rds")
+saveRDS(tree, "tree_model.rds")
+```
+
+## Logistic Regression
+```{r}
+logit_model <- glm(BoxOffice_Class ~ log_GDP + log_Pop + Year,
+                   data = train,
+                   family = binomial)
+summary(logit_model)
+```
+
+Interpretation：
+
+- Population and Year are significant predictors.
+- Both variables show negative coefficients, suggesting a decreasing likelihood of high box office with larger population and later years.
+- GDP is not statistically significant, indicating limited predictive power when controlling for other factors.
+
+```{r}
+pred_prob_logit <- predict(logit_model, newdata = test, type = "response")
+pred_class_logit <- ifelse(pred_prob_logit > 0.5, "High", "Low")
+
+cm_logit <- confusionMatrix(as.factor(pred_class_logit),
+                            as.factor(test$BoxOffice_Class),
+                            positive = "High")
+cm_logit
+
+roc_obj_logit <- roc(response = test$BoxOffice_Class,
+                     predictor = pred_prob_logit,
+                     levels = c("Low", "High"))
+auc_logit <- auc(roc_obj_logit)
+plot.roc(roc_obj_logit, print.auc = TRUE, col = "steelblue", lwd = 2,
+         main = "ROC Curve -- Logistic Regression")
+```
+
+Interpretation:
+
+The ROC curve of the logistic regression model shows an AUC of 0.55, indicating that the model performs only slightly better than random guessing. This suggests that the relationship between GDP, population, and box office classification may not be linearly separable. In contrast to the decision tree, which captures nonlinear interactions, the logistic model provides limited predictive power despite its interpretability.
+
+## Model Comparison
+```{r}
+model_comparison <- data.frame(
+  Metric = c("Accuracy", "AUC", "Sensitivity", "Specificity"),
+  Decision_Tree = c(0.535, 0.571, 0.691, 0.382),
+  Logistic_Regression = c(0.591, 0.551, 0.655, 0.527)
+)
+
+kable(model_comparison, caption = "Comparison of Decision Tree and Logistic Regression performance")
+```
+The Decision Tree achieved an AUC of 0.571 and accuracy of 0.535, while the Logistic Regression reached an AUC of 0.551, and accuracy of 0.591. Although both models have similar predictive performance, the tree captures nonlinear relationship and threshold-based relationships better.
+
+## Model Interpretation using LIME
+```{r}
+model_type.rpart <- function(x, ...) {
+  return("classification")}
+
+predict_model.rpart <- function(x, newdata, type, ...) {
+  preds <- predict(x, newdata, type = "prob")
+  colnames(preds) <- levels(train$BoxOffice_Class)
+  as.data.frame(preds)}
+
+feature_cols <- c("log_GDP", "log_Pop", "Year")
+
+X_train <- as.data.frame(train[, feature_cols])
+X_test <- as.data.frame(test[, feature_cols])
+
+set.seed(777)
+sample_rows <- sample(seq_len(nrow(X_test)), 3)
+explain_data <- X_test[sample_rows, , drop = FALSE]
+
+explainer <- lime(x = X_train, model = tree)
+
+explanation <- explain(
+  explain_data,
+  explainer = explainer,
+  n_features = 3,
+  n_labels = 1
+)
+
+plot_features(explanation)
+```
+
+Interpretation:
+
+- LIME explanations show how individual features contribute to each prediction. For example, lower GDP and mid-range years (2013–2019) generally support the classification of “High” box office, while higher GDP levels may contradict this prediction (Case 90). This highlights the model’s ability to capture non-linear feature interactions. 
+- In Cases 1 and 24, the log_GDP feature strongly supports the model’s prediction of “High” box office, indicating that GDP level plays a dominant positive role in these instances.This aligns with the decision tree structure, where GDP serves as the primary splitting variable.
+
+# Overall Summary
+
+This project aimed to explore the relationship between box office revenue, GDP, and population across countries from 2000 to 2024, and to predict whether a country’s box office level would be high or low based on socioeconomic indicators.
+
+The data sets were merged by country and year, cleaned to remove missing values, and transformed for analysis. The box office variable was normalized by GDP to account for economic scale differences, and a categorical variable (“High”, “Low”) was created for classification.
+
+Exploratory data analysis revealed positive relationships between GDP, population, and total box office revenue, with GDP showing the strongest association. In the classification stage, both Decision Tree and Logistic Regression models achieved moderate accuracy, with accuracy around 0.53-0.59. The Decision Tree slightly outperformed in capturing non-linear relationships, while Logistic Regression provided higher specificity.
+
+Feature importance and LIME analysis confirmed that GDP plays the most dominant role in predicting high box office levels, while population and year provide additional contextual influence.
+Although model performance was moderate, with AUC values around 0.55-0.57, the analysis provided interpretable insights into how socioeconomic indicators influence box office outcomes. Future work could incorporate movie-level such as genre, budget, and marketing to improve model accuracy.
+
+Overall, this study demonstrates that GDP and population can serve as useful indicators for understanding and predicting international box office performance.
+
+# Notes and Supplementary Information
+
+- The cleaned and merged data set has been exported as an .rds file to ensure that the Shiny App can be launched independently without rerunning this R Markdown file. This step guarantees reproducibility and consistency between the analytical results and the interactive application.
+
+- A short 2–3 minute video has been recorded to demonstrate the functionality of the Shiny App.
+You can view it here: https://youtu.be/JLm0-qZYaP0
