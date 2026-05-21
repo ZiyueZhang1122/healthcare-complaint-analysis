@@ -1,7 +1,7 @@
 ---
-title: "CITS4009 Project —— Exploratory Data Analysis and Predictive Modelling"
-author: "Alina ZHANG 24888935"
-date: "2025-10-05"
+title: "Box Office, GDP, and Population Analysis"
+author: "Ziyue Zhang"
+date: "2026-05-21"
 output: 
   html_document:
     toc: true

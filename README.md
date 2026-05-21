@@ -24,7 +24,7 @@ The included report explores the relationship between worldwide box office reven
 
 ```text
 .
-|-- Project1.Rmd             # Main R Markdown analysis report
+|-- box-office-gdp-population-analysis.Rmd  # Main R Markdown analysis report
 |-- PORTFOLIO_TEMPLATE.md    # Reusable template for future portfolio projects
 |-- .gitignore               # R/RStudio and generated-file ignore rules
 `-- README.md                # Project overview for GitHub and resume readers
@@ -32,7 +32,7 @@ The included report explores the relationship between worldwide box office reven
 
 ## How to Run
 
-1. Open `Project1.Rmd` in RStudio.
+1. Open `box-office-gdp-population-analysis.Rmd` in RStudio.
 2. Install the required R packages:
 
 ```r
@@ -58,7 +58,7 @@ GDP_2020_2024.csv
 Population_2000_2024.csv
 ```
 
-4. Knit `Project1.Rmd` to HTML.
+4. Knit `box-office-gdp-population-analysis.Rmd` to HTML.
 
 ## Notes for Future Projects
 
