@@ -1,0 +1,27 @@
+# R and RStudio
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+*.Rproj
+
+# R Markdown outputs
+*_cache/
+*_files/
+*.html
+*.pdf
+*.docx
+
+# Generated analysis outputs
+*.rds
+*.RDS
+outputs/
+reports/*.html
+
+# Local data files
+data/raw/
+data/private/
+
+# OS files
+.DS_Store
+Thumbs.db
